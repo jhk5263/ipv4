@@ -37,6 +37,8 @@ SOURCES: dict[str, str] = {
     'https://vps789.com/openApi/cfIpApi': 'VPS789',
     'https://api.4ce.cn/api/bestCFIP': 'vvhan',
     'https://ip.164746.xyz': 'https://ip.164746.xyz',
+    'https://raw.githubusercontent.com/jhk5263/ipv4/main/ca.txt': 'ca',
+   
 }
 
 PORT: str = '443'
