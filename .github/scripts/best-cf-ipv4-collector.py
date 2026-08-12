@@ -5,7 +5,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
-
+import geoip2.database
 from curl_cffi import requests as cf_requests
 
 try:
@@ -125,15 +125,9 @@ def _get_searcher() -> 'Searcher':
 
 
 def lookup_country(ip: str) -> str:
-    """Look up ISO-3166 country code offline via ip2region, return 'XX' on failure."""
-    try:
-        region = _get_searcher().search(ip)
-        code = region.split('|')[-1].strip()
-        if re.fullmatch(r'[A-Z]{2}', code):
-            return code
-    except Exception:
-        pass
-    return 'XX'
+    reader = geoip2.database.Reader('GeoLite2-Country.mmdb')
+    response = reader.country(ip)
+    return response.country.iso_code
 
 
 def beijing_timestamp() -> str:
