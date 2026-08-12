@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 import geoip2.database
 from curl_cffi import requests as cf_requests
-
+from pathlib import Path
 try:
     from playwright.sync_api import sync_playwright
 except ImportError:
@@ -25,6 +25,21 @@ if TYPE_CHECKING:
     from playwright.sync_api import Browser
 
 GEOIP_DB = Path(__file__).resolve().parent / 'data' / 'GeoLite2-Country.mmdb'
+XDB_FILE = Path('ip2region_v4.xdb')
+
+print(f"File exists: {XDB_FILE.exists()}")
+if XDB_FILE.exists():
+    print(f"File size: {XDB_FILE.stat().st_size}")
+    try:
+        header = util.load_header_from_file(str(XDB_FILE))
+        print(f"Header version: {util.version_from_header(header)}")
+        content = util.load_content_from_file(str(XDB_FILE))
+        searcher = new_with_buffer(util.version_from_header(header), content)
+        result = searcher.search('8.8.8.8')
+        print(f"Search result: {result}")
+    except Exception as e:
+        print(f"Error: {e}")
+
 SOURCES: dict[str, str] = {
     'https://www.wetest.vip/page/cloudfront/address_v4.html': 'WeTest',
     'https://api.uouin.com/cloudflare.html': 'UOUIN',
