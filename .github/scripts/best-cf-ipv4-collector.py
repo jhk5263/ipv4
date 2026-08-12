@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from ip2region.searcher import Searcher
     from playwright.sync_api import Browser
 
-
+GEOIP_DB = Path(__file__).resolve().parent / 'data' / 'GeoLite2-Country.mmdb'
 SOURCES: dict[str, str] = {
     'https://www.wetest.vip/page/cloudfront/address_v4.html': 'WeTest',
     'https://api.uouin.com/cloudflare.html': 'UOUIN',
@@ -125,9 +125,12 @@ def _get_searcher() -> 'Searcher':
 
 
 def lookup_country(ip: str) -> str:
-    reader = geoip2.database.Reader('GeoLite2-Country.mmdb')
-    response = reader.country(ip)
-    return response.country.iso_code
+    try:
+        reader = geoip2.database.Reader(str(GEOIP_DB))
+        response = reader.country(ip)
+        return response.country.iso_code
+    except Exception:
+        return 'XX'
 
 
 def beijing_timestamp() -> str:
