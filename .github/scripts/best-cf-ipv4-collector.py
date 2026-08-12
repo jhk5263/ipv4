@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import geoip2.database
 from curl_cffi import requests as cf_requests
 
 try:
@@ -43,10 +42,6 @@ OUTPUT_FILE: Path = Path('best-cf-ipv4.txt')
 MAX_RETRIES: int = 3
 RETRY_BACKOFF_FACTOR: float = 2.0
 
-# GeoLite2 数据库路径
-GEOIP_DB_URL: str = 'https://github.com/P3TERX/GeoLite2.mmdb/raw/download/GeoLite2-Country.mmdb'
-GEOIP_DB_FILE: Path = Path(__file__).resolve().parent / 'data' / 'GeoLite2-Country.mmdb'
-
 # ==================== 工具函数 ====================
 def _session() -> cf_requests.Session:
     session = cf_requests.Session(impersonate='chrome')
@@ -82,34 +77,19 @@ def country_to_flag(code: str) -> str:
         return ''
     return chr(ord(code[0]) - 65 + 0x1F1E6) + chr(ord(code[1]) - 65 + 0x1F1E6)
 
-def _ensure_geoip_db() -> None:
-    """Download GeoLite2-Country.mmdb if missing."""
-    if GEOIP_DB_FILE.exists():
-        return
-    GEOIP_DB_FILE.parent.mkdir(parents=True, exist_ok=True)
-    print(f'Downloading GeoLite2 database from {GEOIP_DB_URL} ...')
-    with _session() as sess:
-        resp = sess.get(GEOIP_DB_URL, timeout=120)
-        resp.raise_for_status()
-        GEOIP_DB_FILE.write_bytes(resp.content)
-    print('GeoLite2 database downloaded.')
-
-_geoip_reader = None
-
-def _get_geoip_reader():
-    """Lazily load GeoLite2 database."""
-    global _geoip_reader
-    if _geoip_reader is None:
-        _ensure_geoip_db()
-        _geoip_reader = geoip2.database.Reader(str(GEOIP_DB_FILE))
-    return _geoip_reader
-
 def lookup_country(ip: str) -> str:
+    """使用 ip-api.com 免费 API 查询国家代码（无速率限制时大约 45次/分钟）"""
     try:
-        reader = _get_geoip_reader()
-        response = reader.country(ip)
-        return response.country.iso_code or 'XX'
-    except Exception:
+        # 使用 cf_requests 保持一致的伪装
+        with _session() as sess:
+            resp = sess.get(
+                f'http://ip-api.com/json/{ip}?fields=countryCode',
+                timeout=10
+            )
+            data = resp.json()
+            return data.get('countryCode', 'XX')
+    except Exception as e:
+        print(f'  [lookup] {ip} failed: {e}')
         return 'XX'
 
 def beijing_timestamp() -> str:
@@ -162,7 +142,11 @@ def collect_ips(session: cf_requests.Session) -> set[str]:
 
 def enrich_locations(ips: set[str]) -> dict[str, str]:
     entries: dict[str, str] = {}
-    for ip in ips:
+    total = len(ips)
+    for idx, ip in enumerate(ips, 1):
+        # 每 10 个打印一次进度
+        if idx % 10 == 0 or idx == total:
+            print(f'  [location] {idx}/{total}')
         entries[f'{ip}:{PORT}'] = lookup_country(ip)
     return entries
 
