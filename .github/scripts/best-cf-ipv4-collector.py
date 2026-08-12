@@ -77,10 +77,15 @@ def country_to_flag(code: str) -> str:
         return ''
     return chr(ord(code[0]) - 65 + 0x1F1E6) + chr(ord(code[1]) - 65 + 0x1F1E6)
 
-def lookup_country(ip: str) -> str:
-    """使用 ip-api.com 免费 API 查询国家代码（无速率限制时大约 45次/分钟）"""
+def lookup_country(ip: str, retry: bool = True) -> str:
+    """使用 ip-api.com 免费 API 查询国家代码，带重试和 IP 验证"""
+    # 先验证 IP 是否合法
     try:
-        # 使用 cf_requests 保持一致的伪装
+        ipaddress.ip_address(ip)
+    except ValueError:
+        return 'XX'
+    
+    try:
         with _session() as sess:
             resp = sess.get(
                 f'http://ip-api.com/json/{ip}?fields=countryCode',
@@ -88,8 +93,10 @@ def lookup_country(ip: str) -> str:
             )
             data = resp.json()
             return data.get('countryCode', 'XX')
-    except Exception as e:
-        print(f'  [lookup] {ip} failed: {e}')
+    except Exception:
+        if retry:
+            time.sleep(1)  # 重试前等待1秒
+            return lookup_country(ip, retry=False)
         return 'XX'
 
 def beijing_timestamp() -> str:
@@ -144,10 +151,11 @@ def enrich_locations(ips: set[str]) -> dict[str, str]:
     entries: dict[str, str] = {}
     total = len(ips)
     for idx, ip in enumerate(ips, 1):
-        # 每 10 个打印一次进度
         if idx % 10 == 0 or idx == total:
             print(f'  [location] {idx}/{total}')
         entries[f'{ip}:{PORT}'] = lookup_country(ip)
+        # 每秒约 2 次，远低于 ip-api.com 的 45次/分钟限制
+        time.sleep(0.5)
     return entries
 
 def main() -> int:
