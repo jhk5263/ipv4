@@ -77,14 +77,8 @@ def country_to_flag(code: str) -> str:
         return ''
     return chr(ord(code[0]) - 65 + 0x1F1E6) + chr(ord(code[1]) - 65 + 0x1F1E6)
 
-def lookup_country(ip: str, retry: bool = True) -> str:
-    """使用 ip-api.com 免费 API 查询国家代码，带重试和 IP 验证"""
-    # 先验证 IP 是否合法
-    try:
-        ipaddress.ip_address(ip)
-    except ValueError:
-        return 'XX'
-    
+def lookup_country_single(ip: str) -> str:
+    """单个 IP 查询（降级备用）"""
     try:
         with _session() as sess:
             resp = sess.get(
@@ -94,10 +88,45 @@ def lookup_country(ip: str, retry: bool = True) -> str:
             data = resp.json()
             return data.get('countryCode', 'XX')
     except Exception:
-        if retry:
-            time.sleep(1)  # 重试前等待1秒
-            return lookup_country(ip, retry=False)
         return 'XX'
+
+def lookup_country_batch(ips: list[str]) -> dict[str, str]:
+    """批量查询 IP 归属地，一次最多 100 个"""
+    results: dict[str, str] = {}
+    total = len(ips)
+    
+    for i in range(0, total, 100):
+        batch = ips[i:i+100]
+        print(f'  [batch] querying {i+1}-{min(i+100, total)}/{total}')
+        
+        url = 'http://ip-api.com/batch?fields=countryCode'
+        try:
+            with _session() as sess:
+                resp = sess.post(url, json=batch, timeout=15)
+                resp.raise_for_status()
+                data = resp.json()
+                
+                if not isinstance(data, list):
+                    print(f'  [batch] unexpected response: {data}')
+                    # 降级为单个查询
+                    for ip in batch:
+                        results[ip] = lookup_country_single(ip)
+                else:
+                    for idx, item in enumerate(data):
+                        ip = batch[idx]
+                        if isinstance(item, dict):
+                            results[ip] = item.get('countryCode', 'XX')
+                        else:
+                            results[ip] = 'XX'
+        except Exception as e:
+            print(f'  [batch] error: {e}, falling back to single queries')
+            for ip in batch:
+                results[ip] = lookup_country_single(ip)
+        
+        # 批次之间稍作延迟
+        time.sleep(0.5)
+    
+    return results
 
 def beijing_timestamp() -> str:
     return (datetime.now(timezone.utc) + timedelta(hours=8)).strftime('%Y-%m-%d %H:%M')
@@ -148,14 +177,15 @@ def collect_ips(session: cf_requests.Session) -> set[str]:
     return all_ips
 
 def enrich_locations(ips: set[str]) -> dict[str, str]:
+    """批量查询 IP 地理位置"""
+    ip_list = list(ips)
+    print(f'  Querying {len(ip_list)} IPs in batches...')
+    
+    country_map = lookup_country_batch(ip_list)
+    
     entries: dict[str, str] = {}
-    total = len(ips)
-    for idx, ip in enumerate(ips, 1):
-        if idx % 10 == 0 or idx == total:
-            print(f'  [location] {idx}/{total}')
-        entries[f'{ip}:{PORT}'] = lookup_country(ip)
-        # 每秒约 2 次，远低于 ip-api.com 的 45次/分钟限制
-        time.sleep(0.5)
+    for ip in ip_list:
+        entries[f'{ip}:{PORT}'] = country_map.get(ip, 'XX')
     return entries
 
 def main() -> int:
